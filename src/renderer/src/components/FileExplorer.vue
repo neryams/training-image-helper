@@ -31,21 +31,14 @@
   
       <!-- Main Content -->
       <div class="main-content">
-        <div v-if="selectedImage" class="image-viewer">
-          <div class="metadata-overlay" v-if="imageMetadata">
-            {{ imageMetadata.width }} × {{ imageMetadata.height }}
-          </div>
-          <img :src="imageUrl" :alt="selectedImage" />
-        </div>
-        <div v-else class="no-image">
-          <p>Select an image from the sidebar to view it</p>
-        </div>
+        <ImageViewer :image-path="selectedImage" />
       </div>
     </div>
   </template>
   
   <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
+  import ImageViewer from './ImageViewer.vue'
   
   // Add type definitions for the electron API
   declare global {
@@ -66,7 +59,6 @@
   const selectedFolder = ref('')
   const files = ref<string[]>([])
   const selectedImage = ref('')
-  const imageMetadata = ref<{ width: number; height: number; format: string } | null>(null)
   
   // Computed
   const imageUrl = computed(() => {
@@ -95,12 +87,6 @@
   
   async function selectImage(filename: string) {
     selectedImage.value = filename
-    try {
-      imageMetadata.value = await window.api.getImageMetadata(filename)
-    } catch (error) {
-      console.error('Error getting image metadata:', error)
-      imageMetadata.value = null
-    }
   }
   
   async function selectNextImage() {
@@ -206,38 +192,6 @@
     font-size: 0.9em;
     margin-top: 8px;
     display: inline-block;
-  }
-  
-  .metadata-overlay {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 5px 10px;
-    border-radius: 4px;
-    font-size: 14px;
-    z-index: 1;
-  }
-  
-  .image-viewer {
-    position: relative;
-    max-width: 100%;
-    max-height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .image-viewer img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-  
-  .no-image {
-    color: #666;
-    text-align: center;
   }
   
   h2 {
