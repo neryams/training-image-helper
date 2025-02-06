@@ -37,12 +37,22 @@
           @selection-change="handleSelectionChange"
         />
       </div>
+  
+      <!-- Save Button -->
+      <button 
+        class="save-button"
+        @click="handleSave"
+        :disabled="!selectedImage || !imageSelections.has(selectedImage)"
+      >
+        Save Changes
+      </button>
     </div>
   </template>
   
   <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
   import ImageViewer from './ImageViewer.vue'
+  import { SelectionData } from '../../../shared/types'
   
   // Add type definitions for the electron API
   declare global {
@@ -55,6 +65,7 @@
           height: number;
           format: string;
         }>;
+        saveSelections: (selections: Record<string, SelectionData>) => Promise<void>;
       }
     }
   }
@@ -63,15 +74,6 @@
   const selectedFolder = ref('')
   const files = ref<string[]>([])
   const selectedImage = ref('')
-  
-  // Add new interface for selection data
-  interface SelectionData {
-    x: number
-    y: number
-    width: number
-    height: number
-    imagePath: string
-  }
   
   // Add new state for selections
   const imageSelections = ref<Map<string, SelectionData>>(new Map())
@@ -102,6 +104,12 @@
   }
   
   async function selectImage(filename: string) {
+    // Save current selection before changing images
+    if (selectedImage.value && imageSelections.has(selectedImage.value)) {
+      await handleSave()
+    }
+
+    // Update selected image
     selectedImage.value = filename
   }
   
@@ -139,6 +147,20 @@
   function handleSelectionChange(selection: SelectionData) {
     // Save the selection data for this image
     imageSelections.value.set(selection.imagePath, selection)
+  }
+  
+  async function handleSave() {
+    if (!selectedImage.value || !imageSelections.has(selectedImage.value)) return
+
+    try {
+      const currentSelection = imageSelections.value.get(selectedImage.value)
+      await window.api.saveSelections({
+        imagePath: selectedImage.value,
+        selection: currentSelection
+      })
+    } catch (error) {
+      console.error('Error saving selection:', error)
+    }
   }
   </script>
   
@@ -219,5 +241,29 @@
     margin: 0;
     padding-bottom: 15px;
     border-bottom: 1px solid #ddd;
+  }
+  
+  .save-button {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 24px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    z-index: 100;
+  }
+  
+  .save-button:hover {
+    background-color: #0056b3;
+  }
+  
+  .save-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
   }
   </style> 

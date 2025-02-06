@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import fs from 'fs/promises';
 import sharp from 'sharp';
+import { SelectionData } from '../shared/types'
 
 /** This is the electron backend code */
 
@@ -143,3 +144,13 @@ ipcMain.handle("image:getMetadata", async (_, filename: string) => {
     throw error;
   }
 });
+
+ipcMain.handle('save-selections', async (_event, data: { imagePath: string, selection: SelectionData }) => {
+  // This is just a stub for now
+  console.log('Received selection to save:', {
+    image: data.imagePath,
+    selection: data.selection
+  })
+  // Here you would typically save the selection to a file or database
+  return Promise.resolve()
+})
