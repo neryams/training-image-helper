@@ -1,5 +1,18 @@
 <template>
     <div class="file-explorer">
+      <!-- Toast Container -->
+      <div class="toast-container">
+        <transition-group name="toast">
+          <div
+            v-for="toast in toasts"
+            :key="toast.id"
+            :class="['toast', toast.type]"
+          >
+            {{ toast.message }}
+          </div>
+        </transition-group>
+      </div>
+  
       <!-- Sidebar -->
       <div class="sidebar">
         <h2>Image Explorer</h2>
@@ -48,6 +61,7 @@
             @keydown="handleKeyDown"
           >
           <button 
+            type="button"
             class="save-button"
             @click="handleSave"
             :disabled="!selectedImage || !imageSettings.has(selectedImage)"
@@ -98,6 +112,20 @@
   
   // Add ref for the caption input element
   const captionInput = ref<HTMLInputElement | null>(null)
+  
+  // Add these new interfaces after the existing type definitions
+  interface Toast {
+    message: string;
+    type: 'success' | 'error';
+    id: number;
+  }
+  
+  // Add these new refs with the other state declarations
+  const toasts = ref<Toast[]>([]);
+  let toastCounter = 0;
+  
+  // Add this flag to track if a save is in progress
+  const isSaving = ref(false);
   
   // Move handleKeyDown outside of onMounted to avoid recreating it
   function handleKeyDown(event: KeyboardEvent) {
@@ -176,17 +204,16 @@
     }
   }
   
+  // Modify the selectImage function to avoid unnecessary saves
   async function selectImage(filename: string) {
-    // Save current selection before changing images
-    if (selectedImage.value && imageSettings.value.has(selectedImage.value)) {
-      await handleSave()
-    }
+    if (filename === selectedImage.value) return;  // Don't process if same image
+
+    await handleSave();
 
     // Update selected image
-    selectedImage.value = filename
+    selectedImage.value = filename;
     const settings = imageSettings.value.get(filename);
     currentSelectionSettings.value = settings;
-    // Load caption from settings if it exists
     imageCaption.value = settings?.caption || '';
   }
   
@@ -213,20 +240,36 @@
     imageSettings.value.set(selection.imagePath, selection)
   }
   
+  // Add this new function to handle showing toasts
+  function showToast(message: string, type: 'success' | 'error') {
+    const id = toastCounter++;
+    toasts.value.push({ message, type, id });
+    
+    // Remove the toast after 3 seconds
+    setTimeout(() => {
+      toasts.value = toasts.value.filter(t => t.id !== id);
+    }, 3000);
+  }
+  
+  // Modify the handleSave function to use the flag
   async function handleSave() {
-    if (!selectedImage.value || !imageSettings.value.has(selectedImage.value)) return
+    if (!selectedImage.value || !imageSettings.value.has(selectedImage.value) || isSaving.value) return
 
     try {
+      isSaving.value = true;
       const currentSelection = imageSettings.value.get(selectedImage.value)!
-      // Update the caption in the selection data
       currentSelection.caption = imageCaption.value
       
       await window.api.saveSelections({
         imagePath: selectedImage.value,
         selection: toRaw(currentSelection)
       })
+      showToast('Changes saved successfully', 'success');
     } catch (error) {
       console.error('Error saving selection:', error)
+      showToast('Failed to save changes', 'error');
+    } finally {
+      isSaving.value = false;
     }
   }
   </script>
@@ -350,5 +393,46 @@
   .save-button:disabled {
     background-color: #ccc;
     cursor: not-allowed;
+  }
+  
+  .toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+  }
+  
+  .toast {
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    color: white;
+    font-size: 11px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    min-width: 200px;
+  }
+  
+  .toast.success {
+    background-color: #4caf50;
+  }
+  
+  .toast.error {
+    background-color: #f44336;
+  }
+  
+  /* Toast Animation */
+  .toast-enter-active,
+  .toast-leave-active {
+    transition: all 0.3s ease;
+  }
+  
+  .toast-enter-from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  
+  .toast-leave-to {
+    transform: translateX(100%);
+    opacity: 0;
   }
   </style> 
