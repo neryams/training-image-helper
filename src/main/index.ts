@@ -110,7 +110,35 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Add these IPC handlers after the app event handlers
+// Add this function to load the dictionary from JSON
+async function loadImageDictionary(outputDir: string) {
+  const dictionaryPath = path.join(outputDir, 'image_captions.json');
+  
+  try {
+    const exists = await fs.access(dictionaryPath).then(() => true).catch(() => false);
+    if (!exists) {
+      console.log('No existing dictionary file found');
+      return;
+    }
+
+    const jsonContent = await fs.readFile(dictionaryPath, 'utf-8');
+    const dictionaryArray = JSON.parse(jsonContent) as ImageDictionaryEntry[];
+    
+    // Clear existing dictionary and populate from file
+    imageDictionary.clear();
+    dictionaryArray.forEach(entry => {
+      const outputPath = path.join(outputDir, path.basename(entry.imagePath));
+      imageDictionary.set(outputPath, entry);
+    });
+    
+    console.log('Loaded existing image dictionary from:', dictionaryPath);
+  } catch (error) {
+    console.error('Error loading image dictionary:', error);
+    // Don't throw - just start with empty dictionary if there's an error
+  }
+}
+
+// Modify the dialog:openFolder handler to load the dictionary when a folder is selected
 ipcMain.handle("dialog:openFolder", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
@@ -118,6 +146,11 @@ ipcMain.handle("dialog:openFolder", async () => {
 
   if (!result.canceled) {
     currentFolderPath = result.filePaths[0];
+    
+    // Load existing dictionary if available
+    const outputDir = path.join(currentFolderPath, OUTPUT_SUBDIR);
+    await loadImageDictionary(outputDir);
+    
     return currentFolderPath;
   }
   return null;
@@ -227,4 +260,14 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
     console.error('Error saving cropped image:', error)
     throw error
   }
+});
+
+// Add this new IPC handler after the other handlers
+ipcMain.handle("dictionary:get", async () => {
+  if (!currentFolderPath) {
+    return [];
+  }
+
+  // Convert Map to array format
+  return Array.from(imageDictionary.values());
 });

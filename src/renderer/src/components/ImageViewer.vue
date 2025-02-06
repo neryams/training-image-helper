@@ -143,7 +143,7 @@ watch(() => props.imagePath, async (newPath) => {
     const dimensions = await calculateImageDimensions();
     if(!dimensions) return;
 
-    if (!props.initialSelection) {
+    if (!props.initialSelection || !props.initialSelection.width || !props.initialSelection.height) {
       // Set default selection size and position
       const size = Math.min(imageDimensions.displayWidth, imageDimensions.displayHeight)
       selectionDimensions.value = {

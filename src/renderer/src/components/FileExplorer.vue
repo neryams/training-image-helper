@@ -76,6 +76,10 @@
           format: string;
         }>;
         saveSelections: (params: {imagePath: string, selection: SelectionData}) => Promise<void>;
+        getDictionary: () => Promise<Array<{
+          imagePath: string;
+          caption: string;
+        }>>;
       }
     }
   }
@@ -147,8 +151,27 @@
       selectedImage.value = ''
       try {
         files.value = await window.api.getFiles()
+        
+        // Load existing dictionary data
+        const dictionaryData = await window.api.getDictionary();
+        
+        // Clear existing settings
+        imageSettings.value.clear();
+        
+        // Populate imageSettings with existing data
+        dictionaryData.forEach(entry => {
+          imageSettings.value.set(entry.imagePath, {
+            imagePath: entry.imagePath,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            caption: entry.caption
+          });
+        });
+        
       } catch (error) {
-        console.error('Error getting files:', error)
+        console.error('Error getting files or dictionary:', error)
       }
     }
   }
@@ -186,7 +209,7 @@
   function handleSelectionChange(selection: SelectionData) {
     // Preserve existing caption when updating selection
     const existingSettings = imageSettings.value.get(selection.imagePath);
-    selection.caption = existingSettings?.caption || imageCaption.value;
+    selection.caption = existingSettings?.caption;
     imageSettings.value.set(selection.imagePath, selection)
   }
   

@@ -11,7 +11,8 @@ const api = {
     ipcRenderer.invoke("image:getMetadata", filename),
   saveSelections: (data: { imagePath: string, selection: SelectionData }) => {
     return ipcRenderer.invoke('save-selections', data)
-  }
+  },
+  getDictionary: () => ipcRenderer.invoke("dictionary:get"),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
