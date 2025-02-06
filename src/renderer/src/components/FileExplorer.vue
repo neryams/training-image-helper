@@ -31,7 +31,11 @@
   
       <!-- Main Content -->
       <div class="main-content">
-        <ImageViewer :image-path="selectedImage" />
+        <ImageViewer 
+          :image-path="selectedImage"
+          :initial-selection="imageSelections.get(selectedImage)"
+          @selection-change="handleSelectionChange"
+        />
       </div>
     </div>
   </template>
@@ -59,6 +63,18 @@
   const selectedFolder = ref('')
   const files = ref<string[]>([])
   const selectedImage = ref('')
+  
+  // Add new interface for selection data
+  interface SelectionData {
+    x: number
+    y: number
+    width: number
+    height: number
+    imagePath: string
+  }
+  
+  // Add new state for selections
+  const imageSelections = ref<Map<string, SelectionData>>(new Map())
   
   // Computed
   const imageUrl = computed(() => {
@@ -118,6 +134,11 @@
         selectPreviousImage()
         break
     }
+  }
+  
+  function handleSelectionChange(selection: SelectionData) {
+    // Save the selection data for this image
+    imageSelections.value.set(selection.imagePath, selection)
   }
   </script>
   
