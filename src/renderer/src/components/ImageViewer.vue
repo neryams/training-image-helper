@@ -1,10 +1,15 @@
 <template>
-  <div class="image-viewer">
+  <div class="image-viewer" ref="viewerContainer">
     <div class="metadata-overlay" v-if="imageMetadata">
       {{ imageMetadata.width }} x {{ imageMetadata.height }}
     </div>
     <div class="image-container" ref="imageContainer" v-if="imageUrl">
-      <img :src="imageUrl" :alt="imagePath" @load="onImageLoad" ref="imageRef" />
+      <img 
+        :src="imageUrl" 
+        :alt="imagePath" 
+        ref="imageRef"
+        :style="imageStyle"
+      />
       <div v-if="selectionDimensions.width" class="selection-overlay" :style="{
         width: `${selectionDimensions.width}px`,
         height: `${selectionDimensions.height}px`,
@@ -24,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
 import { SelectionData } from '../../../shared/types'
 
 interface SelectionDimensions {
@@ -49,6 +54,9 @@ const dragStart = ref({ x: 0, y: 0 })
 const isResizing = ref(false)
 const resizingCorner = ref<Corner | null>(null)
 const resizeStart = ref({ x: 0, y: 0, width: 0, height: 0, left: 0, top: 0 })
+const viewerContainer = ref<HTMLDivElement | null>(null)
+const imageStyle = ref({ width: '0px', height: '0px' })
+const imageDimensions = reactive({ displayWidth: 0, displayHeight: 0, nativeWidth: 0, nativeHeight: 0 })
 
 const imageUrl = computed(() => {
   if (!props.imagePath) return ''
@@ -65,32 +73,106 @@ const emit = defineEmits<{
   }): void
 }>()
 
+async function calculateImageDimensions() {
+  if (!viewerContainer.value || !imageUrl.value) return
+
+  const metadata = await getImageMetadata(imageUrl.value);
+  if(!metadata) return;
+
+  const containerWidth = viewerContainer.value.clientWidth
+  const containerHeight = viewerContainer.value.clientHeight
+  const imageAspectRatio = metadata.width / metadata.height
+  const containerAspectRatio = containerWidth / containerHeight
+
+  let width: number, height: number;
+
+  if (imageAspectRatio > containerAspectRatio) {
+    // Image is wider relative to container
+    width = Math.min(containerWidth, metadata.width)
+    height = width / imageAspectRatio
+  } else {
+    // Image is taller relative to container
+    height = Math.min(containerHeight, metadata.height)
+    width = height * imageAspectRatio
+  }
+
+  // Final check to ensure neither dimension exceeds native size
+  if (width > metadata.width) {
+    width = metadata.width
+    height = width / imageAspectRatio
+  }
+  if (height > metadata.height) {
+    height = metadata.height
+    width = height * imageAspectRatio
+  }
+
+  imageStyle.value = {
+    width: `${width}px`,
+    height: `${height}px`
+  }
+  imageDimensions.displayHeight = height;
+  imageDimensions.displayWidth = width;
+  imageDimensions.nativeHeight = metadata.height;
+  imageDimensions.nativeWidth = metadata.width;
+
+  return imageDimensions;
+}
+
 function getImageScale(): number {
   if (!imageRef.value || !imageMetadata.value) return 1
 
   // Calculate scale by comparing displayed size to actual image size
-  const displayedWidth = imageRef.value.offsetWidth
-  const actualWidth = imageMetadata.value.width
+  const displayedWidth = imageDimensions.displayWidth
+  const actualWidth = imageDimensions.nativeWidth
   
   return actualWidth / displayedWidth
 }
 
-function onImageLoad() {
-  if (!imageRef.value || !imageMetadata.value) return
-  
-  if (!props.initialSelection) {
-    // Set default selection size and position
-    const size = Math.min(imageRef.value.offsetWidth, imageRef.value.offsetHeight)
-    selectionDimensions.value = {
-      width: size,
-      height: size
+async function getImageMetadata(path: string) {
+    try {
+      imageMetadata.value = await window.api.getImageMetadata(path)
+    } catch (error) {
+      console.error('Error getting image metadata:', error)
+      imageMetadata.value = null
     }
-    selectionPos.value = {
-      x: (imageRef.value.offsetWidth - size) / 2,
-      y: (imageRef.value.offsetHeight - size) / 2
-    }
-  }
+    return imageMetadata.value;
 }
+
+watch(() => props.imagePath, async (newPath) => {
+  if (newPath) {
+    const dimensions = await calculateImageDimensions();
+    if(!dimensions) return;
+
+    if (!props.initialSelection) {
+      // Set default selection size and position
+      const size = Math.min(imageDimensions.displayWidth, imageDimensions.displayHeight)
+      selectionDimensions.value = {
+        width: size,
+        height: size
+      }
+      selectionPos.value = {
+        x: (imageDimensions.displayWidth - size) / 2,
+        y: (imageDimensions.displayHeight - size) / 2
+      }
+      
+      emitSelectionChange();
+    } else {
+      // Convert saved selection from actual coordinates to display coordinates
+      const scale = getImageScale()
+      // Restore saved selection
+      selectionDimensions.value = {
+        width: props.initialSelection.width / scale,
+        height: props.initialSelection.height / scale
+      }
+      selectionPos.value = {
+        x: props.initialSelection.x / scale,
+        y: props.initialSelection.y / scale
+      }
+    }
+  } else {
+    imageMetadata.value = null
+  }
+}, { immediate: true })
 
 function startDrag(e: MouseEvent) {
   isDragging.value = true
@@ -104,14 +186,14 @@ function startDrag(e: MouseEvent) {
 }
 
 function onDrag(e: MouseEvent) {
-  if (!isDragging.value || !imageRef.value) return
+  if (!isDragging.value) return
 
   let newX = e.clientX - dragStart.value.x
   let newY = e.clientY - dragStart.value.y
 
   // Constrain to image bounds
-  const maxX = imageRef.value.offsetWidth - selectionDimensions.value.width
-  const maxY = imageRef.value.offsetHeight - selectionDimensions.value.height
+  const maxX = imageDimensions.nativeWidth - selectionDimensions.value.width
+  const maxY = imageDimensions.nativeHeight - selectionDimensions.value.height
 
   newX = Math.max(0, Math.min(newX, maxX))
   newY = Math.max(0, Math.min(newY, maxY))
@@ -129,8 +211,6 @@ function stopDrag() {
 }
 
 function startResize(corner: Corner) {
-  if (!imageRef.value) return
-  
   isResizing.value = true
   resizingCorner.value = corner
   
@@ -232,53 +312,42 @@ function emitSelectionChange() {
   })
 }
 
-watch(() => props.imagePath, async (newPath) => {
-  if (newPath) {
-    try {
-      imageMetadata.value = await window.api.getImageMetadata(newPath)
-    } catch (error) {
-      console.error('Error getting image metadata:', error)
-      imageMetadata.value = null
-    }
-  } else {
-    imageMetadata.value = null
-  }
+onMounted(() => {
+  const resizeObserver = new ResizeObserver(() => {
+    calculateImageDimensions()
+  })
   
-  if (props.initialSelection) {
-    // Convert saved selection from actual coordinates to display coordinates
-    const scale = getImageScale()
-    // Restore saved selection
-    selectionDimensions.value = {
-      width: props.initialSelection.width / scale,
-      height: props.initialSelection.height / scale
-    }
-    selectionPos.value = {
-      x: props.initialSelection.x / scale,
-      y: props.initialSelection.y / scale
-    }
+  if (viewerContainer.value) {
+    resizeObserver.observe(viewerContainer.value)
   }
-}, { immediate: true })
+
+  onUnmounted(() => {
+    resizeObserver.disconnect()
+  })
+})
 </script>
 
 <style scoped>
 .image-viewer {
   position: relative;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
+  overflow: hidden;
 }
 
 .image-container {
   position: relative;
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image-viewer img {
-  max-width: 100%;
-  max-height: 100%;
+  display: block;
   object-fit: contain;
   pointer-events: none;
 }

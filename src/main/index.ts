@@ -12,7 +12,17 @@ import { SelectionData } from '../shared/types'
 let currentFolderPath: string | null = null;
 let outputDimensions: { width: number, height: number } = { width: 512, height: 512 };
 
+// Update the type definition for the dictionary entries
+interface ImageDictionaryEntry {
+  imagePath: string;
+  caption: string;
+}
+
+// Update the type of imageDictionary
+let imageDictionary: Map<string, ImageDictionaryEntry> = new Map();
+
 const IMAGE_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const OUTPUT_SUBDIR = "output";
 
 function createWindow(): void {
   // Create the browser window.
@@ -136,6 +146,10 @@ ipcMain.handle("image:getMetadata", async (_, filename: string) => {
     throw new Error("No folder selected");
   }
 
+  if(filename.startsWith("atom://")) {
+    filename = filename.replace("atom://", "");
+  }
+
   try {
     const imagePath = path.join(currentFolderPath, filename);
     const metadata = await sharp(imagePath).metadata();
@@ -146,6 +160,27 @@ ipcMain.handle("image:getMetadata", async (_, filename: string) => {
   }
 });
 
+// Add a function to save the dictionary to JSON
+async function saveImageDictionary(outputDir: string) {
+  const dictionaryPath = path.join(outputDir, 'image_captions.json');
+  
+  // Convert Map to array format
+  const dictionaryArray = Array.from(imageDictionary.values());
+  
+  try {
+    await fs.writeFile(
+      dictionaryPath, 
+      JSON.stringify(dictionaryArray, null, 2),
+      'utf-8'
+    );
+    console.log('Saved image dictionary to:', dictionaryPath);
+  } catch (error) {
+    console.error('Error saving image dictionary:', error);
+    throw error;
+  }
+}
+
+// Update the save-selections handler
 ipcMain.handle('save-selections', async (_event, data: { imagePath: string, selection: SelectionData }) => {
   if (!currentFolderPath) {
     throw new Error("No folder selected");
@@ -153,7 +188,7 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
 
   try {
     // Create output directory if it doesn't exist
-    const outputDir = path.join(currentFolderPath, 'output')
+    const outputDir = path.join(currentFolderPath, OUTPUT_SUBDIR)
     await fs.mkdir(outputDir, { recursive: true })
 
     // Get the input image path
@@ -162,7 +197,7 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
     // Generate output filename - append '_cropped' before the extension
     const ext = path.extname(data.imagePath)
     const basename = path.basename(data.imagePath, ext)
-    const outputPath = path.join(outputDir, `${basename}_cropped${ext}`)
+    const outputPath = path.join(outputDir, `${basename}${ext}`)
 
     // Load image, crop it, resize it, and save to output directory
     await sharp(inputPath)
@@ -177,6 +212,15 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
       })
       .toFile(outputPath)
 
+    // Update the image dictionary with the new entry
+    imageDictionary.set(outputPath, {
+      imagePath: data.imagePath,
+      caption: data.selection.caption || ''
+    });
+
+    // Save the updated dictionary to JSON
+    await saveImageDictionary(outputDir);
+    
     console.log('Saved cropped and resized image:', outputPath)
     return outputPath
   } catch (error) {

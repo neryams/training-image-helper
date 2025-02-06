@@ -4,4 +4,5 @@ export interface SelectionData {
   width: number
   height: number
   imagePath: string
+  caption?: string
 } 

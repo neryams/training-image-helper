@@ -29,28 +29,38 @@
         </div>
       </div>
   
-      <!-- Main Content -->
-      <div class="main-content">
-        <ImageViewer 
-          :image-path="selectedImage"
-          :initial-selection="currentCropSettings"
-          @selection-change="handleSelectionChange"
-        />
+      <!-- Main Content Area -->
+      <div class="main-content-area">
+        <div class="image-viewer-container">
+          <ImageViewer 
+            :image-path="selectedImage"
+            :initial-selection="currentSelectionSettings"
+            @selection-change="handleSelectionChange"
+          />
+        </div>
+        <div class="bottom-bar">
+          <input 
+            ref="captionInput"
+            type="text"
+            class="caption-input"
+            placeholder="Enter image caption..."
+            v-model="imageCaption"
+            @keydown="handleKeyDown"
+          >
+          <button 
+            class="save-button"
+            @click="handleSave"
+            :disabled="!selectedImage || !imageSettings.has(selectedImage)"
+          >
+            Save Changes
+          </button>
+        </div>
       </div>
-  
-      <!-- Save Button -->
-      <button 
-        class="save-button"
-        @click="handleSave"
-        :disabled="!selectedImage || !imageCropSettings.has(selectedImage)"
-      >
-        Save Changes
-      </button>
     </div>
   </template>
   
   <script setup lang="ts">
-  import { ref, onMounted, toRaw } from 'vue'
+  import { ref, onMounted, onUnmounted, toRaw } from 'vue'
   import ImageViewer from './ImageViewer.vue'
   import { SelectionData } from '../../../shared/types'
   
@@ -76,13 +86,58 @@
   const selectedImage = ref('')
   
   // Add new state for selections
-  const imageCropSettings = ref<Map<string, SelectionData>>(new Map());
-  const currentCropSettings = ref<SelectionData | undefined>(undefined);
+  const imageSettings = ref<Map<string, SelectionData>>(new Map());
+  const currentSelectionSettings = ref<SelectionData | undefined>(undefined);
   
-  // Lifecycle hook
+  // Add new ref for caption
+  const imageCaption = ref('')
+  
+  // Add ref for the caption input element
+  const captionInput = ref<HTMLInputElement | null>(null)
+  
+  // Move handleKeyDown outside of onMounted to avoid recreating it
+  function handleKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case 'Enter':
+      case 'Tab':
+      case 'ArrowDown':
+        event.preventDefault()
+        selectNextImage()
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        selectPreviousImage()
+        break
+      default:
+        if (event.target instanceof HTMLInputElement) {
+          return
+        }
+        // Check if key is alphanumeric
+        if (event.key.length === 1 && /^[a-zA-Z0-9]$/.test(event.key)) {
+          event.preventDefault()
+          captionInput.value?.focus()
+          imageCaption.value = event.key
+        }
+    }
+  }
+  
+  // Lifecycle hooks
   onMounted(async () => {
-    await selectFolder();
-    window.addEventListener('keydown', handleKeyDown)
+    // Wait for window to be ready
+    if (document.readyState === 'complete') {
+      window.addEventListener('keydown', handleKeyDown)
+      selectFolder();
+    } else {
+      window.addEventListener('load', () => {
+        window.addEventListener('keydown', handleKeyDown)
+        selectFolder();
+      })
+    }
+  })
+  
+  // Clean up event listener when component is unmounted
+  onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeyDown)
   })
   
   async function selectFolder() {
@@ -100,13 +155,16 @@
   
   async function selectImage(filename: string) {
     // Save current selection before changing images
-    if (selectedImage.value && imageCropSettings.value.has(selectedImage.value)) {
+    if (selectedImage.value && imageSettings.value.has(selectedImage.value)) {
       await handleSave()
     }
 
     // Update selected image
     selectedImage.value = filename
-    currentCropSettings.value = imageCropSettings.value.get(filename);
+    const settings = imageSettings.value.get(filename);
+    currentSelectionSettings.value = settings;
+    // Load caption from settings if it exists
+    imageCaption.value = settings?.caption || '';
   }
   
   async function selectNextImage() {
@@ -125,31 +183,20 @@
     await selectImage(files.value[previousIndex])
   }
   
-  function handleKeyDown(event: KeyboardEvent) {
-    switch (event.key) {
-      case 'Enter':
-      case 'Tab':
-      case 'ArrowDown':
-        event.preventDefault()
-        selectNextImage()
-        break
-      case 'ArrowUp':
-        event.preventDefault()
-        selectPreviousImage()
-        break
-    }
-  }
-  
   function handleSelectionChange(selection: SelectionData) {
-    // Save the selection data for this image
-    imageCropSettings.value.set(selection.imagePath, selection)
+    // Preserve existing caption when updating selection
+    const existingSettings = imageSettings.value.get(selection.imagePath);
+    selection.caption = existingSettings?.caption || imageCaption.value;
+    imageSettings.value.set(selection.imagePath, selection)
   }
   
   async function handleSave() {
-    if (!selectedImage.value || !imageCropSettings.value.has(selectedImage.value)) return
+    if (!selectedImage.value || !imageSettings.value.has(selectedImage.value)) return
 
     try {
-      const currentSelection = imageCropSettings.value.get(selectedImage.value)!
+      const currentSelection = imageSettings.value.get(selectedImage.value)!
+      // Update the caption in the selection data
+      currentSelection.caption = imageCaption.value
       
       await window.api.saveSelections({
         imagePath: selectedImage.value,
@@ -180,14 +227,36 @@
     box-sizing: border-box;
   }
   
-  .main-content {
+  .main-content-area {
     flex: 1;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    background-color: #fff;
+    overflow: hidden;
+  }
+  
+  .image-viewer-container {
     padding: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: #fff;
     overflow: hidden;
+  }
+  
+  .bottom-bar {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    background-color: #f5f5f5;
+    border-top: 1px solid #ddd;
+  }
+  
+  .caption-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
   }
   
   .selected-folder {
@@ -241,9 +310,6 @@
   }
   
   .save-button {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
     padding: 12px 24px;
     background-color: #007bff;
     color: white;
@@ -252,7 +318,6 @@
     font-size: 14px;
     cursor: pointer;
     transition: background-color 0.2s;
-    z-index: 100;
   }
   
   .save-button:hover {
