@@ -1,7 +1,7 @@
 <template>
   <div class="image-viewer">
     <div class="metadata-overlay" v-if="imageMetadata">
-      {{ imageMetadata.width }} × {{ imageMetadata.height }}
+      {{ imageMetadata.width }} x {{ imageMetadata.height }}
     </div>
     <div class="image-container" ref="imageContainer" v-if="imageUrl">
       <img :src="imageUrl" :alt="imagePath" @load="onImageLoad" ref="imageRef" />
@@ -34,14 +34,6 @@ interface SelectionDimensions {
 
 type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
-interface SelectionData {
-  x: number
-  y: number
-  width: number
-  height: number
-  imagePath: string
-}
-
 const props = defineProps<{
   imagePath: string
   initialSelection?: SelectionData
@@ -73,20 +65,20 @@ const emit = defineEmits<{
   }): void
 }>()
 
-function onImageLoad() {
-  if (!imageRef.value) return
+function getImageScale(): number {
+  if (!imageRef.value || !imageMetadata.value) return 1
+
+  // Calculate scale by comparing displayed size to actual image size
+  const displayedWidth = imageRef.value.offsetWidth
+  const actualWidth = imageMetadata.value.width
   
-  if (props.initialSelection) {
-    // Restore saved selection
-    selectionDimensions.value = {
-      width: props.initialSelection.width,
-      height: props.initialSelection.height
-    }
-    selectionPos.value = {
-      x: props.initialSelection.x,
-      y: props.initialSelection.y
-    }
-  } else {
+  return actualWidth / displayedWidth
+}
+
+function onImageLoad() {
+  if (!imageRef.value || !imageMetadata.value) return
+  
+  if (!props.initialSelection) {
     // Set default selection size and position
     const size = Math.min(imageRef.value.offsetWidth, imageRef.value.offsetHeight)
     selectionDimensions.value = {
@@ -226,13 +218,16 @@ function stopResize() {
   document.removeEventListener('mouseup', stopResize)
 }
 
-// Add new helper function to emit changes
 function emitSelectionChange() {
+  if (!imageMetadata.value) return
+
+  const scale = getImageScale()
+  
   emit('selectionChange', {
-    x: selectionPos.value.x,
-    y: selectionPos.value.y,
-    width: selectionDimensions.value.width,
-    height: selectionDimensions.value.height,
+    x: Math.round(selectionPos.value.x * scale),
+    y: Math.round(selectionPos.value.y * scale),
+    width: Math.round(selectionDimensions.value.width * scale),
+    height: Math.round(selectionDimensions.value.height * scale),
     imagePath: props.imagePath
   })
 }
@@ -247,6 +242,20 @@ watch(() => props.imagePath, async (newPath) => {
     }
   } else {
     imageMetadata.value = null
+  }
+  
+  if (props.initialSelection) {
+    // Convert saved selection from actual coordinates to display coordinates
+    const scale = getImageScale()
+    // Restore saved selection
+    selectionDimensions.value = {
+      width: props.initialSelection.width / scale,
+      height: props.initialSelection.height / scale
+    }
+    selectionPos.value = {
+      x: props.initialSelection.x / scale,
+      y: props.initialSelection.y / scale
+    }
   }
 }, { immediate: true })
 </script>

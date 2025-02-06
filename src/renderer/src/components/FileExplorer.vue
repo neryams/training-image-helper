@@ -33,7 +33,7 @@
       <div class="main-content">
         <ImageViewer 
           :image-path="selectedImage"
-          :initial-selection="imageSelections.get(selectedImage)"
+          :initial-selection="currentCropSettings"
           @selection-change="handleSelectionChange"
         />
       </div>
@@ -42,7 +42,7 @@
       <button 
         class="save-button"
         @click="handleSave"
-        :disabled="!selectedImage || !imageSelections.has(selectedImage)"
+        :disabled="!selectedImage || !imageCropSettings.has(selectedImage)"
       >
         Save Changes
       </button>
@@ -50,7 +50,7 @@
   </template>
   
   <script setup lang="ts">
-  import { ref, computed, onMounted } from 'vue'
+  import { ref, onMounted, toRaw } from 'vue'
   import ImageViewer from './ImageViewer.vue'
   import { SelectionData } from '../../../shared/types'
   
@@ -65,7 +65,7 @@
           height: number;
           format: string;
         }>;
-        saveSelections: (selections: Record<string, SelectionData>) => Promise<void>;
+        saveSelections: (params: {imagePath: string, selection: SelectionData}) => Promise<void>;
       }
     }
   }
@@ -76,13 +76,8 @@
   const selectedImage = ref('')
   
   // Add new state for selections
-  const imageSelections = ref<Map<string, SelectionData>>(new Map())
-  
-  // Computed
-  const imageUrl = computed(() => {
-    if (!selectedImage.value) return ''
-    return `atom://${selectedImage.value}`
-  })
+  const imageCropSettings = ref<Map<string, SelectionData>>(new Map());
+  const currentCropSettings = ref<SelectionData | undefined>(undefined);
   
   // Lifecycle hook
   onMounted(async () => {
@@ -105,12 +100,13 @@
   
   async function selectImage(filename: string) {
     // Save current selection before changing images
-    if (selectedImage.value && imageSelections.has(selectedImage.value)) {
+    if (selectedImage.value && imageCropSettings.value.has(selectedImage.value)) {
       await handleSave()
     }
 
     // Update selected image
     selectedImage.value = filename
+    currentCropSettings.value = imageCropSettings.value.get(filename);
   }
   
   async function selectNextImage() {
@@ -146,17 +142,18 @@
   
   function handleSelectionChange(selection: SelectionData) {
     // Save the selection data for this image
-    imageSelections.value.set(selection.imagePath, selection)
+    imageCropSettings.value.set(selection.imagePath, selection)
   }
   
   async function handleSave() {
-    if (!selectedImage.value || !imageSelections.has(selectedImage.value)) return
+    if (!selectedImage.value || !imageCropSettings.value.has(selectedImage.value)) return
 
     try {
-      const currentSelection = imageSelections.value.get(selectedImage.value)
+      const currentSelection = imageCropSettings.value.get(selectedImage.value)!
+      
       await window.api.saveSelections({
         imagePath: selectedImage.value,
-        selection: currentSelection
+        selection: toRaw(currentSelection)
       })
     } catch (error) {
       console.error('Error saving selection:', error)

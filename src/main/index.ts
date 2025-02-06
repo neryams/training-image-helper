@@ -10,6 +10,7 @@ import { SelectionData } from '../shared/types'
 
 // Add this state variable at the top level
 let currentFolderPath: string | null = null;
+let outputDimensions: { width: number, height: number } = { width: 512, height: 512 };
 
 const IMAGE_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
@@ -146,11 +147,40 @@ ipcMain.handle("image:getMetadata", async (_, filename: string) => {
 });
 
 ipcMain.handle('save-selections', async (_event, data: { imagePath: string, selection: SelectionData }) => {
-  // This is just a stub for now
-  console.log('Received selection to save:', {
-    image: data.imagePath,
-    selection: data.selection
-  })
-  // Here you would typically save the selection to a file or database
-  return Promise.resolve()
-})
+  if (!currentFolderPath) {
+    throw new Error("No folder selected");
+  }
+
+  try {
+    // Create output directory if it doesn't exist
+    const outputDir = path.join(currentFolderPath, 'output')
+    await fs.mkdir(outputDir, { recursive: true })
+
+    // Get the input image path
+    const inputPath = path.join(currentFolderPath, data.imagePath)
+    
+    // Generate output filename - append '_cropped' before the extension
+    const ext = path.extname(data.imagePath)
+    const basename = path.basename(data.imagePath, ext)
+    const outputPath = path.join(outputDir, `${basename}_cropped${ext}`)
+
+    // Load image, crop it, resize it, and save to output directory
+    await sharp(inputPath)
+      .extract({
+        left: Math.round(data.selection.x),
+        top: Math.round(data.selection.y),
+        width: Math.round(data.selection.width),
+        height: Math.round(data.selection.height)
+      })
+      .resize(outputDimensions.width, outputDimensions.height, {
+        fit: 'fill'  // Force resize to exact dimensions
+      })
+      .toFile(outputPath)
+
+    console.log('Saved cropped and resized image:', outputPath)
+    return outputPath
+  } catch (error) {
+    console.error('Error saving cropped image:', error)
+    throw error
+  }
+});
