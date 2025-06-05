@@ -191,13 +191,7 @@ function onDrag(e: MouseEvent) {
   let newX = e.clientX - dragStart.value.x
   let newY = e.clientY - dragStart.value.y
 
-  // Constrain to image bounds
-  const maxX = imageDimensions.nativeWidth - selectionDimensions.value.width
-  const maxY = imageDimensions.nativeHeight - selectionDimensions.value.height
-
-  newX = Math.max(0, Math.min(newX, maxX))
-  newY = Math.max(0, Math.min(newY, maxY))
-
+  // Remove constraints - allow selection to go outside image bounds
   selectionPos.value = { x: newX, y: newY }
   
   // Emit the change
@@ -265,9 +259,8 @@ function onResize(e: MouseEvent) {
   // Force 1:1 aspect ratio by using the smaller dimension
   const size = Math.min(Math.abs(newWidth), Math.abs(newHeight))
   
-  // Ensure we stay within image bounds
-  const maxSize = Math.min(imageRef.value.offsetWidth, imageRef.value.offsetHeight)
-  const finalSize = Math.min(size, maxSize)
+  // Ensure minimum size but allow extending beyond image bounds
+  const finalSize = Math.max(size, 10) // Minimum 10px size
 
   // Update position and dimensions while maintaining aspect ratio
   if (resizingCorner.value.includes('left')) {
@@ -277,10 +270,7 @@ function onResize(e: MouseEvent) {
     newY = selectionPos.value.y + (selectionDimensions.value.height - finalSize)
   }
 
-  // Constrain to image bounds
-  newX = Math.max(0, Math.min(newX, imageRef.value.offsetWidth - finalSize))
-  newY = Math.max(0, Math.min(newY, imageRef.value.offsetHeight - finalSize))
-
+  // Remove image bounds constraints - allow selection to extend beyond image
   selectionDimensions.value = {
     width: finalSize,
     height: finalSize

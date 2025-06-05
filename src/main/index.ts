@@ -10,7 +10,7 @@ import { SelectionData } from '../shared/types'
 
 // Add this state variable at the top level
 let currentFolderPath: string | null = null;
-let outputDimensions: { width: number, height: number } = { width: 512, height: 512 };
+let outputDimensions: { width: number, height: number } = { width: 1024, height: 1024 };
 
 // Update the type definition for the dictionary entries
 interface ImageDictionaryEntry {
@@ -201,12 +201,28 @@ async function saveImageDictionary(outputDir: string) {
   const dictionaryArray = Array.from(imageDictionary.values());
   
   try {
+    // Save the JSON dictionary
     await fs.writeFile(
       dictionaryPath, 
       JSON.stringify(dictionaryArray, null, 2),
       'utf-8'
     );
     console.log('Saved image dictionary to:', dictionaryPath);
+
+    // Save individual text files for each image caption
+    for (const entry of dictionaryArray) {
+      const ext = path.extname(entry.imagePath);
+      const basename = path.basename(entry.imagePath, ext);
+      const textFilePath = path.join(outputDir, `${basename}.txt`);
+      
+      await fs.writeFile(
+        textFilePath,
+        entry.caption || '',
+        'utf-8'
+      );
+    }
+    console.log('Saved individual caption text files to output directory');
+    
   } catch (error) {
     console.error('Error saving image dictionary:', error);
     throw error;
@@ -224,24 +240,64 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
     const outputDir = path.join(currentFolderPath, OUTPUT_SUBDIR)
     await fs.mkdir(outputDir, { recursive: true })
 
-    // Get the input image path
+    // Get the input image path and metadata
     const inputPath = path.join(currentFolderPath, data.imagePath)
+    const imageMetadata = await sharp(inputPath).metadata()
     
-    // Generate output filename - append '_cropped' before the extension
+    if (!imageMetadata.width || !imageMetadata.height) {
+      throw new Error("Could not get image dimensions")
+    }
+
+    // Calculate crop parameters
+    const cropX = Math.round(data.selection.x)
+    const cropY = Math.round(data.selection.y)
+    const cropWidth = Math.round(data.selection.width)
+    const cropHeight = Math.round(data.selection.height)
+
+    // Calculate padding needed if crop extends outside image bounds
+    const leftPad = Math.max(0, -cropX)
+    const topPad = Math.max(0, -cropY)
+    const rightPad = Math.max(0, (cropX + cropWidth) - imageMetadata.width)
+    const bottomPad = Math.max(0, (cropY + cropHeight) - imageMetadata.height)
+
+    // Calculate actual crop area within image bounds
+    const actualCropX = Math.max(0, cropX)
+    const actualCropY = Math.max(0, cropY)
+    const actualCropWidth = Math.min(cropWidth - leftPad - rightPad, imageMetadata.width - actualCropX)
+    const actualCropHeight = Math.min(cropHeight - topPad - bottomPad, imageMetadata.height - actualCropY)
+
+    // Generate output filename
     const ext = path.extname(data.imagePath)
     const basename = path.basename(data.imagePath, ext)
     const outputPath = path.join(outputDir, `${basename}${ext}`)
 
-    // Load image, crop it, resize it, and save to output directory
-    await sharp(inputPath)
-      .extract({
-        left: Math.round(data.selection.x),
-        top: Math.round(data.selection.y),
-        width: Math.round(data.selection.width),
-        height: Math.round(data.selection.height)
+    let processedImage = sharp(inputPath)
+
+    // Only extract if we need to crop within the image
+    if (actualCropWidth > 0 && actualCropHeight > 0) {
+      processedImage = processedImage.extract({
+        left: actualCropX,
+        top: actualCropY,
+        width: actualCropWidth,
+        height: actualCropHeight
       })
+    } else {
+      // If crop is completely outside image, create a white image
+      processedImage = sharp({
+        create: {
+          width: 1,
+          height: 1,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        }
+      })
+    }
+
+    // Now resize the entire padded crop to output dimensions
+    await processedImage
       .resize(outputDimensions.width, outputDimensions.height, {
-        fit: 'fill'  // Force resize to exact dimensions
+        fit: 'contain', // Force resize to exact dimensions
+        background: { r: 255, g: 255, b: 255, alpha: 1 }
       })
       .toFile(outputPath)
 
