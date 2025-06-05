@@ -53,29 +53,44 @@
         />
       </div>
       <div class="bottom-bar">
-        <input
-          ref="captionInput"
-          type="text"
-          class="caption-input"
-          placeholder="Enter image caption..."
-          v-model="imageCaption"
-          @keydown="handleKeyDown"
-        />
-        <button
-          type="button"
-          class="save-button"
-          @click="handleSave"
-          :disabled="!selectedImage || !imageSettings.has(selectedImage)"
-        >
-          Save Changes
-        </button>
+        <div v-if="existingTags.length > 0" class="existing-tags">
+          <label class="tags-label">Used tags:</label>
+          <div class="tags-list">
+            <span
+              v-for="tag in existingTags"
+              :key="tag"
+              class="tag-badge"
+              @click="addTagToCaption(tag)"
+            >
+              {{ tag }}
+            </span>
+          </div>
+        </div>
+        <div class="input-row">
+          <input
+            ref="captionInput"
+            type="text"
+            class="caption-input"
+            placeholder="Enter image caption..."
+            v-model="imageCaption"
+            @keydown="handleKeyDown"
+          />
+          <button
+            type="button"
+            class="save-button"
+            @click="handleSave"
+            :disabled="!selectedImage || !imageSettings.has(selectedImage)"
+          >
+            Save Changes
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, toRaw } from "vue";
+import { ref, onMounted, onUnmounted, toRaw, reactive, computed } from "vue";
 import ImageViewer from "./ImageViewer.vue";
 import { SelectionData } from "../../../shared/types";
 
@@ -83,6 +98,8 @@ import { SelectionData } from "../../../shared/types";
 const selectedFolder = ref("");
 const files = ref<string[]>([]);
 const selectedImage = ref("");
+const existingTagsSet = reactive(new Set<string>());
+const existingTags = computed(() => Array.from(existingTagsSet));
 
 // Add new state for selections
 const imageSettings = ref<Map<string, SelectionData>>(new Map());
@@ -129,7 +146,7 @@ function handleKeyDown(event: KeyboardEvent) {
       if (event.key.length === 1 && /^[a-zA-Z0-9]$/.test(event.key)) {
         event.preventDefault();
         captionInput.value?.focus();
-        imageCaption.value = event.key;
+        imageCaption.value = imageCaption.value.endsWith(",") ? imageCaption.value + event.key : imageCaption.value + "," + event.key;
       }
   }
 }
@@ -176,6 +193,13 @@ async function selectFolder() {
           width: entry.selection.width,
           height: entry.selection.height,
           caption: entry.caption,
+        });
+
+        entry.caption.split(",").forEach(tag => {
+          const trimmedTag = tag.trim();
+          if (trimmedTag !== "") {
+            existingTagsSet.add(trimmedTag);
+          }
         });
       });
     } catch (error) {
@@ -238,6 +262,21 @@ function showToast(message: string, type: "success" | "error") {
   }, 3000);
 }
 
+// Add function to handle tag clicking
+function addTagToCaption(tag: string) {
+  if (imageCaption.value) {
+    // Add comma and space if there's already content
+    const currentTags = imageCaption.value.split(',').map(t => t.trim());
+    if (!currentTags.includes(tag)) {
+      imageCaption.value += ', ' + tag;
+    }
+  } else {
+    // Set as the first tag
+    imageCaption.value = tag;
+  }
+  captionInput.value?.focus();
+}
+
 // Modify the handleSave function to use the flag
 async function handleSave() {
   if (
@@ -251,6 +290,13 @@ async function handleSave() {
     isSaving.value = true;
     const currentSelection = imageSettings.value.get(selectedImage.value)!;
     currentSelection.caption = imageCaption.value;
+
+    imageCaption.value.split(",").forEach(tag => {
+      const trimmedTag = tag.trim();
+      if (trimmedTag !== "") {
+        existingTagsSet.add(trimmedTag);
+      }
+    });
 
     await window.api.saveSelections({
       imagePath: selectedImage.value,
@@ -303,10 +349,50 @@ async function handleSave() {
 
 .bottom-bar {
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px;
   background-color: #f5f5f5;
   border-top: 1px solid #ddd;
+}
+
+.existing-tags {
+  margin-bottom: 4px;
+}
+
+.tags-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-badge {
+  background-color: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-badge:hover {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.input-row {
+  display: flex;
+  gap: 16px;
 }
 
 .caption-input {
