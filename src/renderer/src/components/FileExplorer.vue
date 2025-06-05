@@ -77,6 +77,14 @@
           />
           <button
             type="button"
+            class="clone-button"
+            @click="handleClone"
+            :disabled="!selectedImage"
+          >
+            Clone Image
+          </button>
+          <button
+            type="button"
             class="save-button"
             @click="handleSave"
             :disabled="!selectedImage || !imageSettings.has(selectedImage)"
@@ -277,6 +285,26 @@ function addTagToCaption(tag: string) {
   captionInput.value?.focus();
 }
 
+// Add function to handle image cloning
+async function handleClone() {
+  if (!selectedImage.value) return;
+
+  try {
+    const clonedFilename = await window.api.cloneImage(selectedImage.value);
+    
+    // Add the cloned file to the files list
+    files.value.push(clonedFilename);
+    
+    // Sort the files list to maintain order
+    files.value.sort();
+    
+    showToast(`Image cloned as ${clonedFilename}`, "success");
+  } catch (error) {
+    console.error("Error cloning image:", error);
+    showToast("Failed to clone image", "error");
+  }
+}
+
 // Modify the handleSave function to use the flag
 async function handleSave() {
   if (
@@ -469,6 +497,26 @@ h2 {
 }
 
 .save-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.clone-button {
+  padding: 12px 24px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.clone-button:hover {
+  background-color: #218838;
+}
+
+.clone-button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
 }

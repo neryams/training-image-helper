@@ -363,3 +363,37 @@ ipcMain.handle("dictionary:getSelection", async (_, imagePath: string) => {
   
   return null;
 });
+
+// Add handler to clone an image file
+ipcMain.handle("image:clone", async (_, filename: string) => {
+  if (!currentFolderPath) {
+    throw new Error("No folder selected");
+  }
+
+  try {
+    const sourcePath = path.join(currentFolderPath, filename);
+    const ext = path.extname(filename);
+    const basename = path.basename(filename, ext);
+    
+    // Find the next available number suffix
+    let counter = 2;
+    let newFilename = `${basename}_${counter}${ext}`;
+    let newPath = path.join(currentFolderPath, newFilename);
+    
+    // Keep incrementing until we find an unused filename
+    while (await fs.access(newPath).then(() => true).catch(() => false)) {
+      counter++;
+      newFilename = `${basename}_${counter}${ext}`;
+      newPath = path.join(currentFolderPath, newFilename);
+    }
+    
+    // Copy the file
+    await fs.copyFile(sourcePath, newPath);
+    
+    console.log('Cloned image:', filename, 'to', newFilename);
+    return newFilename;
+  } catch (error) {
+    console.error('Error cloning image:', error);
+    throw error;
+  }
+});

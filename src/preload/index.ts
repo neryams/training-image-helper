@@ -14,6 +14,7 @@ const api = {
   },
   getDictionary: () => ipcRenderer.invoke("dictionary:get"),
   getSelection: (imagePath: string) => ipcRenderer.invoke("dictionary:getSelection", imagePath),
+  cloneImage: (filename: string) => ipcRenderer.invoke("image:clone", filename),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

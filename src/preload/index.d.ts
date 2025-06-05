@@ -8,6 +8,7 @@ interface API {
   saveSelections: (data: { imagePath: string, selection: SelectionData }) => Promise<string>
   getDictionary: () => Promise<ImageDictionaryEntry[]>
   getSelection: (imagePath: string) => Promise<SelectionData | null>
+  cloneImage: (filename: string) => Promise<string>
 }
 
 declare global {
