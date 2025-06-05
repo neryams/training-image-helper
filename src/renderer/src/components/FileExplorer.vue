@@ -58,11 +58,13 @@
           <div class="tags-list">
             <span
               v-for="tag in existingTags"
-              :key="tag"
+              :key="tag.tag"
               class="tag-badge"
-              @click="addTagToCaption(tag)"
+              :style="getTagBadgeStyle(tag.count)"
+              :title="`Used in ${tag.count} image${tag.count === 1 ? '' : 's'}`"
+              @click="addTagToCaption(tag.tag)"
             >
-              {{ tag }}
+              {{ tag.tag }} ({{ tag.count }})
             </span>
           </div>
         </div>
@@ -106,8 +108,13 @@ import { SelectionData } from "../../../shared/types";
 const selectedFolder = ref("");
 const files = ref<string[]>([]);
 const selectedImage = ref("");
-const existingTagsSet = reactive(new Set<string>());
-const existingTags = computed(() => Array.from(existingTagsSet));
+const existingTagsMap = reactive(new Map<string, number>());
+const existingTags = computed(() => {
+  // Convert Map to array and sort by usage count (descending)
+  return Array.from(existingTagsMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => ({ tag, count }));
+});
 
 // Add new state for selections
 const imageSettings = ref<Map<string, SelectionData>>(new Map());
@@ -189,8 +196,9 @@ async function selectFolder() {
       // Load existing dictionary data
       const dictionaryData = await window.api.getDictionary();
 
-      // Clear existing settings
+      // Clear existing settings and tags
       imageSettings.value.clear();
+      existingTagsMap.clear();
 
       // Populate imageSettings with existing data
       dictionaryData.forEach((entry) => {
@@ -206,7 +214,7 @@ async function selectFolder() {
         entry.caption.split(",").forEach(tag => {
           const trimmedTag = tag.trim();
           if (trimmedTag !== "") {
-            existingTagsSet.add(trimmedTag);
+            existingTagsMap.set(trimmedTag, (existingTagsMap.get(trimmedTag) || 0) + 1);
           }
         });
       });
@@ -317,12 +325,30 @@ async function handleSave() {
   try {
     isSaving.value = true;
     const currentSelection = imageSettings.value.get(selectedImage.value)!;
+    
+    // Get previous tags before updating the caption
+    const previousTags = new Set(
+      (currentSelection.caption || "")
+        .split(",")
+        .map(tag => tag.trim())
+        .filter(tag => tag !== "")
+    );
+    
+    // Update the caption
     currentSelection.caption = imageCaption.value;
-
-    imageCaption.value.split(",").forEach(tag => {
-      const trimmedTag = tag.trim();
-      if (trimmedTag !== "") {
-        existingTagsSet.add(trimmedTag);
+    
+    // Get current tags after updating
+    const currentTags = new Set(
+      imageCaption.value
+        .split(",")
+        .map(tag => tag.trim())
+        .filter(tag => tag !== "")
+    );
+    
+    // Only increment counts for newly added tags
+    currentTags.forEach(tag => {
+      if (!previousTags.has(tag)) {
+        existingTagsMap.set(tag, (existingTagsMap.get(tag) || 0) + 1);
       }
     });
 
@@ -337,6 +363,33 @@ async function handleSave() {
   } finally {
     isSaving.value = false;
   }
+}
+
+function getTagBadgeStyle(count: number) {
+  // Calculate the maximum count for normalization
+  const maxCount = Math.max(...Array.from(existingTagsMap.values()));
+  // const totalImages = files.value.length || 1;
+  
+  // Calculate usage percentage (0 to 1)
+  const usagePercentage = count / maxCount;
+  
+  // Create orange color gradient from light to dark
+  // Light orange: #FFE4B5 (255, 228, 181) to Dark orange: #FF8C00 (255, 140, 0)
+  const lightR = 255, lightG = 228, lightB = 181;
+  const darkR = 255, darkG = 140, darkB = 0;
+  
+  const r = Math.round(lightR + (darkR - lightR) * usagePercentage);
+  const g = Math.round(lightG + (darkG - lightG) * usagePercentage);
+  const b = Math.round(lightB + (darkB - lightB) * usagePercentage);
+  
+  // Determine text color based on background darkness
+  const textColor = usagePercentage > 0.5 ? '#ffffff' : '#333333';
+  
+  return {
+    backgroundColor: `rgb(${r}, ${g}, ${b})`,
+    color: textColor,
+    border: '1px solid #ddd',
+  };
 }
 </script>
 
