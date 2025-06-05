@@ -4,7 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import fs from 'fs/promises';
 import sharp from 'sharp';
-import { SelectionData } from '../shared/types'
+import { ImageDictionaryEntry, SelectionData } from '../shared/types'
 
 /** This is the electron backend code */
 
@@ -12,11 +12,6 @@ import { SelectionData } from '../shared/types'
 let currentFolderPath: string | null = null;
 let outputDimensions: { width: number, height: number } = { width: 1024, height: 1024 };
 
-// Update the type definition for the dictionary entries
-interface ImageDictionaryEntry {
-  imagePath: string;
-  caption: string;
-}
 
 // Update the type of imageDictionary
 let imageDictionary: Map<string, ImageDictionaryEntry> = new Map();
@@ -38,8 +33,12 @@ function createWindow(): void {
       contextIsolation: true, // Enable context isolation for security
       nodeIntegration: false, // Disable node integration for security
       webSecurity: true, // Keep this true for security
+      devTools: true,
     }
   })
+
+  // Uncomment this to open dev tools debugger
+  // mainWindow.webContents.openDevTools({ mode: 'detach' });
   
   // Replace the old protocol handler with the new one
   mainWindow.webContents.session.protocol.handle("atom", async (request) => {
@@ -122,13 +121,24 @@ async function loadImageDictionary(outputDir: string) {
     }
 
     const jsonContent = await fs.readFile(dictionaryPath, 'utf-8');
-    const dictionaryArray = JSON.parse(jsonContent) as ImageDictionaryEntry[];
+    const dictionaryArray = JSON.parse(jsonContent) as Partial<ImageDictionaryEntry>[];
     
     // Clear existing dictionary and populate from file
     imageDictionary.clear();
     dictionaryArray.forEach(entry => {
-      const outputPath = path.join(outputDir, path.basename(entry.imagePath));
-      imageDictionary.set(outputPath, entry);
+      const outputPath = path.join(outputDir, path.basename(entry.imagePath!));
+      // Handle backward compatibility - provide default selection if missing
+      const fullEntry: ImageDictionaryEntry = {
+        imagePath: entry.imagePath!,
+        caption: entry.caption || '',
+        selection: entry.selection || {
+          x: 0,
+          y: 0,
+          width: 512,
+          height: 512
+        }
+      };
+      imageDictionary.set(outputPath, fullEntry);
     });
     
     console.log('Loaded existing image dictionary from:', dictionaryPath);
@@ -304,7 +314,13 @@ ipcMain.handle('save-selections', async (_event, data: { imagePath: string, sele
     // Update the image dictionary with the new entry
     imageDictionary.set(outputPath, {
       imagePath: data.imagePath,
-      caption: data.selection.caption || ''
+      caption: data.selection.caption || '',
+      selection: {
+        x: data.selection.x,
+        y: data.selection.y,
+        width: data.selection.width,
+        height: data.selection.height
+      }
     });
 
     // Save the updated dictionary to JSON
@@ -326,4 +342,24 @@ ipcMain.handle("dictionary:get", async () => {
 
   // Convert Map to array format
   return Array.from(imageDictionary.values());
+});
+
+// Add handler to get selection data for a specific image
+ipcMain.handle("dictionary:getSelection", async (_, imagePath: string) => {
+  if (!currentFolderPath) {
+    return null;
+  }
+
+  // Find the dictionary entry for this image
+  for (const [_, entry] of imageDictionary.entries()) {
+    if (entry.imagePath === imagePath) {
+      const response: SelectionData = {
+        ...entry.selection,
+        imagePath: entry.imagePath
+      }
+      return response;
+    }
+  }
+  
+  return null;
 });

@@ -13,6 +13,7 @@ const api = {
     return ipcRenderer.invoke('save-selections', data)
   },
   getDictionary: () => ipcRenderer.invoke("dictionary:get"),
+  getSelection: (imagePath: string) => ipcRenderer.invoke("dictionary:getSelection", imagePath),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
