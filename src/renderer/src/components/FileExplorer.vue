@@ -284,7 +284,7 @@ function addTagToCaption(tag: string) {
     // Add comma and space if there's already content
     const currentTags = imageCaption.value.split(',').map(t => t.trim());
     if (!currentTags.includes(tag)) {
-      imageCaption.value += ', ' + tag;
+      imageCaption.value += imageCaption.value.trim().endsWith(",") ? tag : ", " + tag;
     }
   } else {
     // Set as the first tag
