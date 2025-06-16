@@ -22,9 +22,9 @@
       </div>
 
       <div class="file-list">
-        <ul v-if="files.length">
+        <ul v-if="filteredFiles.length">
           <li
-            v-for="file in files"
+            v-for="file in filteredFiles"
             :key="file"
             :class="{ active: selectedImage === file }"
             @click="selectImage(file)"
@@ -32,6 +32,10 @@
             {{ file }}
           </li>
         </ul>
+        <p v-else-if="currentTagFilter">
+          No images found with tag "{{ currentTagFilter }}".
+          <a href="#" @click.prevent="currentTagFilter = null">Clear filter</a>.
+        </p>
         <p v-else>
           No images found. Please
           <a href="#" @click.prevent="selectFolder">select a folder</a>.
@@ -54,15 +58,21 @@
       </div>
       <div class="bottom-bar">
         <div v-if="existingTags.length > 0" class="existing-tags">
-          <label class="tags-label">Used tags:</label>
+          <label class="tags-label">
+            Used tags:
+            <span v-if="currentTagFilter" class="filter-indicator">
+              (Filtered by: {{ currentTagFilter }})
+            </span>
+          </label>
           <div class="tags-list">
             <span
               v-for="tag in existingTags"
               :key="tag.tag"
-              class="tag-badge"
+              :class="['tag-badge', { 'tag-badge-filtered': currentTagFilter === tag.tag }]"
               :style="getTagBadgeStyle(tag.count)"
-              :title="`Used in ${tag.count} image${tag.count === 1 ? '' : 's'}`"
+              :title="`Used in ${tag.count} image${tag.count === 1 ? '' : 's'}. Left-click to add to caption, right-click to filter.`"
               @click="addTagToCaption(tag.tag)"
+              @contextmenu="handleTagRightClick($event, tag.tag)"
             >
               {{ tag.tag }} ({{ tag.count }})
             </span>
@@ -100,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted, toRaw, reactive, computed } from "vue";
+import { ref, onUnmounted, toRaw, reactive, computed, watch } from "vue";
 import ImageViewer from "./ImageViewer.vue";
 import { SelectionData } from "../../../shared/types";
 
@@ -139,6 +149,24 @@ let toastCounter = 0;
 
 // Add this flag to track if a save is in progress
 const isSaving = ref(false);
+
+// Add new state for tag filtering
+const currentTagFilter = ref<string | null>(null);
+
+// Add computed property for filtered files
+const filteredFiles = computed(() => {
+  if (!currentTagFilter.value) {
+    return files.value;
+  }
+  
+  return files.value.filter(filename => {
+    const settings = imageSettings.value.get(filename);
+    if (!settings || !settings.caption) return false;
+    
+    const tags = settings.caption.split(',').map(tag => tag.trim());
+    return tags.includes(currentTagFilter.value!);
+  });
+});
 
 // Move handleKeyDown outside of onMounted to avoid recreating it
 function handleKeyDown(event: KeyboardEvent) {
@@ -229,21 +257,21 @@ async function selectImage(filename: string) {
 }
 
 async function selectNextImage() {
-  if (!files.value.length) return;
+  if (!filteredFiles.value.length) return;
 
-  const currentIndex = files.value.indexOf(selectedImage.value);
+  const currentIndex = filteredFiles.value.indexOf(selectedImage.value);
   const nextIndex =
-    currentIndex === files.value.length - 1 ? 0 : currentIndex + 1;
-  await selectImage(files.value[nextIndex]);
+    currentIndex === filteredFiles.value.length - 1 ? 0 : currentIndex + 1;
+  await selectImage(filteredFiles.value[nextIndex]);
 }
 
 async function selectPreviousImage() {
-  if (!files.value.length) return;
+  if (!filteredFiles.value.length) return;
 
-  const currentIndex = files.value.indexOf(selectedImage.value);
+  const currentIndex = filteredFiles.value.indexOf(selectedImage.value);
   const previousIndex =
-    currentIndex <= 0 ? files.value.length - 1 : currentIndex - 1;
-  await selectImage(files.value[previousIndex]);
+    currentIndex <= 0 ? filteredFiles.value.length - 1 : currentIndex - 1;
+  await selectImage(filteredFiles.value[previousIndex]);
 }
 
 function handleSelectionChange(selection: SelectionData) {
@@ -385,6 +413,35 @@ function getTagBadgeStyle(count: number) {
     border: '1px solid #ddd',
   };
 }
+
+// Add function to handle tag right-click filtering
+function handleTagRightClick(event: MouseEvent, tag: string) {
+  event.preventDefault();
+  
+  if (currentTagFilter.value === tag) {
+    // Clear filter if clicking on the same tag
+    currentTagFilter.value = null;
+    showToast("Filter cleared", "success");
+  } else {
+    // Set new filter
+    currentTagFilter.value = tag;
+    showToast(`Filtering by tag: ${tag}`, "success");
+  }
+}
+
+// Watch for changes in filtered files and adjust selected image if needed
+watch(filteredFiles, (newFilteredFiles) => {
+  // If current selected image is not in filtered list, select first available
+  if (selectedImage.value && !newFilteredFiles.includes(selectedImage.value)) {
+    if (newFilteredFiles.length > 0) {
+      selectImage(newFilteredFiles[0]);
+    } else {
+      selectedImage.value = "";
+      currentSelectionSettings.value = undefined;
+      imageCaption.value = "";
+    }
+  }
+}, { immediate: false });
 </script>
 
 <style scoped>
@@ -463,6 +520,18 @@ function getTagBadgeStyle(count: number) {
   background-color: #007bff;
   color: white;
   border-color: #007bff;
+}
+
+.tag-badge-filtered {
+  background-color: #007bff !important;
+  color: white !important;
+  border-color: #007bff !important;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.filter-indicator {
+  font-weight: bold;
+  color: #007bff;
 }
 
 .input-row {
