@@ -22,12 +22,13 @@
       </div>
 
       <div class="file-list">
-        <ul v-if="filteredFiles.length">
+        <ul v-if="filteredFiles.length" @keydown.prevent="handleKeyDown">
           <li
             v-for="file in filteredFiles"
             :key="file"
             :class="{ active: selectedImage === file }"
             @click="selectImage(file)"
+            tabindex="0"
           >
             {{ file }}
           </li>
@@ -68,7 +69,10 @@
             <span
               v-for="tag in existingTags"
               :key="tag.tag"
-              :class="['tag-badge', { 'tag-badge-filtered': currentTagFilter === tag.tag }]"
+              :class="[
+                'tag-badge',
+                { 'tag-badge-filtered': currentTagFilter === tag.tag },
+              ]"
               :style="getTagBadgeStyle(tag.count)"
               :title="`Used in ${tag.count} image${tag.count === 1 ? '' : 's'}. Left-click to add to caption, right-click to filter.`"
               @click="addTagToCaption(tag.tag)"
@@ -130,6 +134,12 @@ const existingTags = computed(() => {
 const imageSettings = ref<Map<string, SelectionData>>(new Map());
 const currentSelectionSettings = ref<SelectionData | undefined>(undefined);
 
+// Add state to track original data when image is first loaded (for change detection)
+const originalImageData = ref<{
+  caption: string;
+  selection: SelectionData;
+} | null>(null);
+
 // Add new ref for caption
 const imageCaption = ref("");
 
@@ -158,12 +168,12 @@ const filteredFiles = computed(() => {
   if (!currentTagFilter.value) {
     return files.value;
   }
-  
-  return files.value.filter(filename => {
+
+  return files.value.filter((filename) => {
     const settings = imageSettings.value.get(filename);
     if (!settings || !settings.caption) return false;
-    
-    const tags = settings.caption.split(',').map(tag => tag.trim());
+
+    const tags = settings.caption.split(",").map((tag) => tag.trim());
     return tags.includes(currentTagFilter.value!);
   });
 });
@@ -189,7 +199,9 @@ function handleKeyDown(event: KeyboardEvent) {
       if (event.key.length === 1 && /^[a-zA-Z0-9]$/.test(event.key)) {
         event.preventDefault();
         captionInput.value?.focus();
-        imageCaption.value = imageCaption.value.endsWith(",") ? imageCaption.value + event.key : imageCaption.value + "," + event.key;
+        imageCaption.value = imageCaption.value.endsWith(",")
+          ? imageCaption.value + event.key
+          : imageCaption.value + "," + event.key;
       }
   }
 }
@@ -225,10 +237,13 @@ async function selectFolder() {
           caption: entry.caption,
         });
 
-        entry.caption.split(",").forEach(tag => {
+        entry.caption.split(",").forEach((tag) => {
           const trimmedTag = tag.trim();
           if (trimmedTag !== "") {
-            existingTagsMap.set(trimmedTag, (existingTagsMap.get(trimmedTag) || 0) + 1);
+            existingTagsMap.set(
+              trimmedTag,
+              (existingTagsMap.get(trimmedTag) || 0) + 1
+            );
           }
         });
       });
@@ -254,6 +269,14 @@ async function selectImage(filename: string) {
 
   currentSelectionSettings.value = settings;
   imageCaption.value = settings?.caption || "";
+
+  // Store original data for change detection
+  originalImageData.value = settings
+    ? {
+        caption: settings.caption || "",
+        selection: { ...settings },
+      }
+    : null;
 }
 
 async function selectNextImage() {
@@ -296,9 +319,11 @@ function showToast(message: string, type: "success" | "error") {
 function addTagToCaption(tag: string) {
   if (imageCaption.value) {
     // Add comma and space if there's already content
-    const currentTags = imageCaption.value.split(',').map(t => t.trim());
+    const currentTags = imageCaption.value.split(",").map((t) => t.trim());
     if (!currentTags.includes(tag)) {
-      imageCaption.value += imageCaption.value.trim().endsWith(",") ? tag : ", " + tag;
+      imageCaption.value += imageCaption.value.trim().endsWith(",")
+        ? tag
+        : ", " + tag;
     }
   } else {
     // Set as the first tag
@@ -313,13 +338,13 @@ async function handleClone() {
 
   try {
     const clonedFilename = await window.api.cloneImage(selectedImage.value);
-    
+
     // Add the cloned file to the files list
     files.value.push(clonedFilename);
-    
+
     // Sort the files list to maintain order
     files.value.sort();
-    
+
     showToast(`Image cloned as ${clonedFilename}`, "success");
   } catch (error) {
     console.error("Error cloning image:", error);
@@ -333,51 +358,84 @@ async function handleSave() {
     !selectedImage.value ||
     !imageSettings.value.has(selectedImage.value) ||
     isSaving.value
-  )
+  ) {
     return;
+  }
 
   try {
     isSaving.value = true;
     const currentSelection = imageSettings.value.get(selectedImage.value)!;
-    
+
+    // Check if caption has changed
+    const captionChanged =
+      (originalImageData.value?.caption || "") !== imageCaption.value;
+
+    // Check if selection coordinates/dimensions have changed
+    const originalSelection = originalImageData.value?.selection;
+    const selectionChanged =
+      !originalSelection ||
+      originalSelection.x !== currentSelection.x ||
+      originalSelection.y !== currentSelection.y ||
+      originalSelection.width !== currentSelection.width ||
+      originalSelection.height !== currentSelection.height;
+
+    if (!captionChanged && !selectionChanged) {
+      // No changes detected, skip save
+      return;
+    }
+
     // Get previous tags before updating the caption
     const previousTags = new Set(
       (currentSelection.caption || "")
         .split(",")
-        .map(tag => tag.trim())
-        .filter(tag => tag !== "")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag !== "")
     );
-    
+
     // Update the caption
     currentSelection.caption = imageCaption.value;
-    
+
     // Get current tags after updating
     const currentTags = new Set(
       imageCaption.value
         .split(",")
-        .map(tag => tag.trim())
-        .filter(tag => tag !== "")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag !== "")
     );
-    
+
     // Only increment counts for newly added tags
-    for(const tag of previousTags) {
+    for (const tag of previousTags) {
       const count = existingTagsMap.get(tag);
-      if(count) {
-        if(count > 2) {
+      if (count) {
+        if (count > 2) {
           existingTagsMap.set(tag, count - 1);
         } else {
           existingTagsMap.delete(tag);
         }
       }
     }
-    for(const tag of currentTags) {
+    for (const tag of currentTags) {
       existingTagsMap.set(tag, (existingTagsMap.get(tag) || 0) + 1);
+    }
+
+    if (
+      currentTagFilter.value &&
+      !existingTagsMap.has(currentTagFilter.value)
+    ) {
+      currentTagFilter.value = null;
     }
 
     await window.api.saveSelections({
       imagePath: selectedImage.value,
       selection: toRaw(currentSelection),
     });
+
+    // Update original data after successful save
+    originalImageData.value = {
+      caption: imageCaption.value,
+      selection: { ...currentSelection },
+    };
+
     showToast("Changes saved successfully", "success");
   } catch (error) {
     console.error("Error saving selection:", error);
@@ -391,33 +449,37 @@ function getTagBadgeStyle(count: number) {
   // Calculate the maximum count for normalization
   const maxCount = Math.max(...Array.from(existingTagsMap.values()));
   // const totalImages = files.value.length || 1;
-  
+
   // Calculate usage percentage (0 to 1)
   const usagePercentage = count / maxCount;
-  
+
   // Create orange color gradient from light to dark
   // Light orange: #FFE4B5 (255, 228, 181) to Dark orange: #FF8C00 (255, 140, 0)
-  const lightR = 255, lightG = 228, lightB = 181;
-  const darkR = 255, darkG = 140, darkB = 0;
-  
+  const lightR = 255,
+    lightG = 228,
+    lightB = 181;
+  const darkR = 255,
+    darkG = 140,
+    darkB = 0;
+
   const r = Math.round(lightR + (darkR - lightR) * usagePercentage);
   const g = Math.round(lightG + (darkG - lightG) * usagePercentage);
   const b = Math.round(lightB + (darkB - lightB) * usagePercentage);
-  
+
   // Determine text color based on background darkness
-  const textColor = usagePercentage > 0.5 ? '#ffffff' : '#333333';
-  
+  const textColor = usagePercentage > 0.5 ? "#ffffff" : "#333333";
+
   return {
     backgroundColor: `rgb(${r}, ${g}, ${b})`,
     color: textColor,
-    border: '1px solid #ddd',
+    border: "1px solid #ddd",
   };
 }
 
 // Add function to handle tag right-click filtering
 function handleTagRightClick(event: MouseEvent, tag: string) {
   event.preventDefault();
-  
+
   if (currentTagFilter.value === tag) {
     // Clear filter if clicking on the same tag
     currentTagFilter.value = null;
@@ -430,18 +492,25 @@ function handleTagRightClick(event: MouseEvent, tag: string) {
 }
 
 // Watch for changes in filtered files and adjust selected image if needed
-watch(filteredFiles, (newFilteredFiles) => {
-  // If current selected image is not in filtered list, select first available
-  if (selectedImage.value && !newFilteredFiles.includes(selectedImage.value)) {
-    if (newFilteredFiles.length > 0) {
-      selectImage(newFilteredFiles[0]);
-    } else {
-      selectedImage.value = "";
-      currentSelectionSettings.value = undefined;
-      imageCaption.value = "";
+watch(
+  filteredFiles,
+  (newFilteredFiles) => {
+    // If current selected image is not in filtered list, select first available
+    if (
+      selectedImage.value &&
+      !newFilteredFiles.includes(selectedImage.value)
+    ) {
+      if (newFilteredFiles.length > 0) {
+        selectImage(newFilteredFiles[0]);
+      } else {
+        selectedImage.value = "";
+        currentSelectionSettings.value = undefined;
+        imageCaption.value = "";
+      }
     }
-  }
-}, { immediate: false });
+  },
+  { immediate: false }
+);
 </script>
 
 <style scoped>
