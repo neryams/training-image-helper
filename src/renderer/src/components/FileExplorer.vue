@@ -100,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, toRaw, reactive, computed } from "vue";
+import { ref, onUnmounted, toRaw, reactive, computed } from "vue";
 import ImageViewer from "./ImageViewer.vue";
 import { SelectionData } from "../../../shared/types";
 
@@ -165,20 +165,6 @@ function handleKeyDown(event: KeyboardEvent) {
       }
   }
 }
-
-// Lifecycle hooks
-onMounted(async () => {
-  // Wait for window to be ready
-  if (document.readyState === "complete") {
-    window.addEventListener("keydown", handleKeyDown);
-    selectFolder();
-  } else {
-    window.addEventListener("load", () => {
-      window.addEventListener("keydown", handleKeyDown);
-      selectFolder();
-    });
-  }
-});
 
 // Clean up event listener when component is unmounted
 onUnmounted(() => {
@@ -346,11 +332,19 @@ async function handleSave() {
     );
     
     // Only increment counts for newly added tags
-    currentTags.forEach(tag => {
-      if (!previousTags.has(tag)) {
-        existingTagsMap.set(tag, (existingTagsMap.get(tag) || 0) + 1);
+    for(const tag of previousTags) {
+      const count = existingTagsMap.get(tag);
+      if(count) {
+        if(count > 2) {
+          existingTagsMap.set(tag, count - 1);
+        } else {
+          existingTagsMap.delete(tag);
+        }
       }
-    });
+    }
+    for(const tag of currentTags) {
+      existingTagsMap.set(tag, (existingTagsMap.get(tag) || 0) + 1);
+    }
 
     await window.api.saveSelections({
       imagePath: selectedImage.value,
